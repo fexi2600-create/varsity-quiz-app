@@ -5,7 +5,6 @@ from PIL import Image
 import json
 import io
 import re
-import time
 
 # Page Configuration
 st.set_page_config(
@@ -137,30 +136,34 @@ api_key = st.secrets.get("GEMINI_API_KEY") if "GEMINI_API_KEY" in st.secrets els
 if api_key:
     genai.configure(api_key=api_key)
 
-# Smart Multi-Model Generator with Automatic Fallback for 429 Quota Exceeded
+# Dynamic Working Model Generator
 def generate_content_with_fallback(contents):
-    candidate_models = [
-        'models/gemini-1.5-flash',
-        'models/gemini-2.0-flash',
-        'models/gemini-3.6-flash',
-        'models/gemini-1.5-pro'
-    ]
-    
+    valid_models = []
+    try:
+        # Fetch active models dynamically supported by your specific API key
+        fetched_models = [
+            m.name for m in genai.list_models() 
+            if 'generateContent' in m.supported_generation_methods
+        ]
+        if fetched_models:
+            valid_models = fetched_models
+    except Exception:
+        pass
+
+    if not valid_models:
+        valid_models = ['models/gemini-1.5-flash', 'models/gemini-2.0-flash']
+
     last_error = None
-    for model_name in candidate_models:
+    for model_name in valid_models:
         try:
             model = genai.GenerativeModel(model_name)
             response = model.generate_content(contents)
             return response.text
         except Exception as e:
             last_error = e
-            err_msg = str(e).lower()
-            if "429" in err_msg or "quota" in err_msg or "resourceexhausted" in err_msg:
-                continue
-            else:
-                continue
-                
-    raise RuntimeError(f"সকল জেমিনি মডেলে কোটা শেষ হয়ে গেছে। অনুগ্রহ করে ৩০-৪০ সেকেন্ড অপেক্ষা করে চেষ্টা করুন। মূল ত্রুটি: {last_error}")
+            continue
+            
+    raise RuntimeError(f"কুইজ তৈরি করা সম্ভব হয়নি। নতুন API Key ব্যবহার করুন বা কিছুক্ষণ অপেক্ষা করুন। ত্রুটি: {last_error}")
 
 # Safe JSON Parser
 def safe_parse_json(text):
@@ -228,7 +231,7 @@ with tab1:
         if not extracted_content.strip() and not uploaded_images:
             st.error("⚠️ কোনো ইনপুট পাওয়া যায়নি!")
         else:
-            with st.spinner("🚀 কোটা চেক করে সচল মডেলের মাধ্যমে প্রশ্ন তৈরি হচ্ছে..."):
+            with st.spinner("🚀 সচল মডেল নির্বাচন করে প্রশ্ন তৈরি হচ্ছে..."):
                 try:
                     prompt = (
                         f"তুমি ঢাকা বিশ্ববিদ্যালয় ভর্তি পরীক্ষার একজন এক্সপার্ট প্রশ্ন প্রণেতা। "
