@@ -8,12 +8,12 @@ import re
 
 # Page Configuration
 st.set_page_config(
-    page_title="Varsity Quiz Pro - Ultra Edition", 
+    page_title="Varsity Quiz Pro - Executive Edition", 
     page_icon="🎓", 
     layout="centered"
 )
 
-# Advanced Ultra-Modern Glassmorphism CSS Design
+# Advanced Modern Glassmorphism CSS Design
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
@@ -136,7 +136,21 @@ api_key = st.secrets.get("GEMINI_API_KEY") if "GEMINI_API_KEY" in st.secrets els
 if api_key:
     genai.configure(api_key=api_key)
 
-# Safe JSON Parser Function
+# Dynamic Working Model Finder
+def get_working_model():
+    try:
+        models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+        # Priority check for preferred flash models
+        for preferred in ['models/gemini-2.0-flash', 'models/gemini-1.5-flash-latest', 'models/gemini-1.5-pro-latest']:
+            if preferred in models:
+                return preferred
+        if models:
+            return models[0]
+    except Exception:
+        pass
+    return 'gemini-2.0-flash'
+
+# Safe JSON Parser
 def safe_parse_json(text):
     try:
         match = re.search(r'\[.*\]', text, re.DOTALL)
@@ -202,11 +216,10 @@ with tab1:
         if not extracted_content.strip() and not uploaded_images:
             st.error("⚠️ কোনো ইনপুট পাওয়া যায়নি!")
         else:
-            with st.spinner("🚀 AI কন্টেন্ট বিশ্লেষণ করে প্রশ্ন তৈরি করছে..."):
+            with st.spinner("🚀 AI সচল মডেল নির্বাচন করে প্রশ্ন জেনারেট করছে..."):
                 try:
-                    # Model fallback support
-                    model_name = 'gemini-1.5-flash'
-                    model = genai.GenerativeModel(model_name)
+                    active_model = get_working_model()
+                    model = genai.GenerativeModel(active_model)
                     
                     prompt = (
                         f"তুমি ঢাকা বিশ্ববিদ্যালয় ভর্তি পরীক্ষার একজন এক্সপার্ট প্রশ্ন প্রণেতা। "
@@ -250,7 +263,8 @@ with tab2:
         else:
             with st.spinner("🌐 সাম্প্রতিক তথ্য সংগ্রহ করা হচ্ছে..."):
                 try:
-                    model = genai.GenerativeModel('gemini-1.5-flash')
+                    active_model = get_working_model()
+                    model = genai.GenerativeModel(active_model)
                     web_prompt = (
                         f"ইন্টারনেট থেকে সাম্প্রতিকতম তথ্য নিয়ে '{live_topic}' বিষয়ের ওপর ঠিক {live_num} টি MCQ তৈরি করো। "
                         "শুধুমাত্র একটি নিখুঁত JSON Array আউটপুট দেবে:\n"
@@ -353,4 +367,3 @@ with tab5:
     with col3:
         st.metric("একুরেসি", f"{accuracy:.1f}%")
     st.markdown('</div>', unsafe_allow_html=True)
-    
