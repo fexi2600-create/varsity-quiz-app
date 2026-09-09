@@ -171,15 +171,20 @@ with tab1:
         with col2:
             num_questions = st.number_input("🔢 প্রশ্নের সংখ্যা (৫-৫০০):", min_value=5, max_value=500, value=15, key="num1")
 
-        upload_type = st.radio("📥 ইনপুট মাধ্যম:", ["বড় পিডিএফ ফাইল আপলোড (২০+ পেজ পর্যন্ত)", "সরাসরি টেক্সট পেস্ট"])
+        upload_type = st.radio("📥 ইনপুট মাধ্যম:", ["পিডিএফ ফাইল বা ছবি/স্ক্রিনশট আপলোড", "সরাসরি টেক্সট পেস্ট"])
         extracted_content = None
+        uploaded_image = None
 
-        if upload_type == "বড় পিডিএফ ফাইল আপলোড (২০+ পেজ পর্যন্ত)":
-            uploaded_file = st.file_uploader("পিডিএফ ফাইল আপলোড করুন", type=["pdf"])
+        if upload_type == "পিডিএফ ফাইল বা ছবি/স্ক্রিনশট আপলোড":
+            uploaded_file = st.file_uploader("পিডিএফ বা ছবি/স্ক্রিনশট (PDF, PNG, JPG) আপলোড করুন", type=["pdf", "png", "jpg", "jpeg"])
             if uploaded_file is not None:
-                bytes_data = uploaded_file.read()
-                extracted_content = extract_large_pdf_text(bytes_data)
-                st.success(f"⚡ বড় পিডিএফ ফাইল সফলভাবে পড়া হয়েছে! মোট ক্যারেক্টার: {len(extracted_content)}")
+                if uploaded_file.type == "application/pdf":
+                    bytes_data = uploaded_file.read()
+                    extracted_content = extract_large_pdf_text(bytes_data)
+                    st.success(f"⚡ বড় পিডিএফ ফাইল সফলভাবে পড়া হয়েছে!")
+                else:
+                    uploaded_image = Image.open(uploaded_file)
+                    st.success("✅ ছবি বা স্ক্রিনশট সফলভাবে আপলোড হয়েছে!")
         else:
             extracted_content = st.text_area("✍️ পড়ার টপিক বা বড় নোটস পেস্ট করুন:")
 
@@ -189,16 +194,14 @@ with tab1:
     if generate_btn:
         if not api_key:
             st.error("প্রথমে এপিআই কি সেট করুন!")
-        elif not extracted_content:
-            st.error("⚠️ কোনো পিডিএফ বা টেক্সট ইনপুট দিন!")
+        elif not extracted_content and not uploaded_image:
+            st.error("⚠️ কোনো পিডিএফ, ছবি বা টেক্সট ইনপুট দিন!")
         else:
-            with st.spinner("🚀 বড় ডকুমেন্ট প্রসেস করে এক্সিকিউটিভ প্রশ্ন তৈরি হচ্ছে..."):
+            with st.spinner("🚀 ডকুমেন্ট প্রসেস করে এক্সিকিউটিভ প্রশ্ন তৈরি হচ্ছে..."):
                 try:
                     model = genai.GenerativeModel('gemini-3.6-flash')
-                    safe_content = extracted_content[:50000] if len(extracted_content) > 50000 else extracted_content
-                    
                     prompt = f"""
-                    তুমি ঢাকা বিশ্ববিদ্যালয় ভর্তি পরীক্ষার একজন এক্সপার্ট প্রশ্ন প্রণেতা। নিচের বড় ডকুমেন্ট/নোটস থেকে খুব সতর্কতার সাথে ঠিক {num_questions} টি উচ্চমানের বহুনির্বাচনী প্রশ্ন (MCQ) তৈরি করো `{subject}` বিষয়ের জন্য। প্রশ্নগুলো যেন স্ট্যান্ডার্ড ও মানসম্মত হয়।
+                    তুমি ঢাকা বিশ্ববিদ্যালয় ভর্তি পরীক্ষার একজন এক্সপার্ট প্রশ্ন প্রণেতা। নিচের কন্টেন্ট থেকে খুব সতর্কতার সাথে ঠিক {num_questions} টি উচ্চমানের বহুনির্বাচনী প্রশ্ন (MCQ) তৈরি করো `{subject}` বিষয়ের জন্য। প্রশ্নগুলো যেন স্ট্যান্ডার্ড ও মানসম্মত হয়।
                     অবশ্যই নিচের ফরম্যাটে একটি নিখুঁত JSON Array আউটপুট দেবে (অন্য কোনো অতিরিক্ত লেখা বা markdown ট্যাগ যেমন ```json দেওয়া যাবে না):
                     [
                       {{
@@ -209,7 +212,11 @@ with tab1:
                       }}
                     ]
                     """
-                    response = model.generate_content(prompt + "\n\nডকুমেন্ট কন্টেন্ট:\n" + safe_content)
+                    if uploaded_image:
+                        response = model.generate_content([prompt, uploaded_image])
+                    else:
+                        safe_content = extracted_content[:50000] if len(extracted_content) > 50000 else extracted_content
+                        response = model.generate_content(prompt + "\n\nডকুমেন্ট কন্টেন্ট:\n" + safe_content)
                     
                     clean_text = response.text.strip().replace("```json", "").replace("```", "").strip()
                     st.session_state.quiz_questions = json.loads(clean_text)
@@ -217,7 +224,7 @@ with tab1:
                     st.session_state.checked_status = {}
                     st.success("🎉 কুইজ সফলভাবে তৈরি হয়েছে! 'লাইভ পরীক্ষা' ট্যাবে গিয়ে প্র্যাকটিস শুরু করো 👇")
                 except Exception as e:
-                    st.error(f"ত্রুটি দেখা দিয়েছে (সম্ভবত কোটা বা ফরম্যাটিং সমস্যা): {e}")
+                    st.error(f"ত্রুটি দেখা দিয়েছে: {e}")
 
 with tab2:
     st.markdown('<div class="glass-card">', unsafe_allow_html=True)
@@ -241,145 +248,5 @@ with tab2:
                       {{
                         "question": "প্রশ্ন?",
                         "options": ["অপশন ক", "অপশন খ", "অপশন গ", "অপশন ঘ"],
-                        "correct_answer": "সঠিক অপশনটি",
-                        "explanation": "কেন সঠিক তার ব্যাখ্যা"
-                      }}
-                    ]
-                    """
-                    response = model.generate_content(web_prompt)
-                    clean_text = response.text.strip().replace("```json", "").replace("```", "").strip()
-                    st.session_state.quiz_questions = json.loads(clean_text)
-                    st.session_state.user_ans = {}
-                    st.session_state.checked_status = {}
-                    st.success("🎉 ইন্টারনেটের লেটেস্ট ডেটা দিয়ে কুইজ তৈরি হয়ে গেছে! 'লাইভ পরীক্ষা' ট্যাবে যাও।")
-                except Exception as e:
-                    st.error(f"ত্রুটি: {e}")
-
-with tab3:
-    st.markdown('<div class="glass-card">', unsafe_allow_html=True)
-    st.subheader("✍️ প্রফেশনাল লাইভ পরীক্ষা ও ইনস্ট্যান্ট ফিডব্যাক")
-    
-    if st.session_state.quiz_questions:
-        st.markdown("<p style='color: #9ca3af; font-size: 0.9rem; margin-bottom: 20px;'>প্রতিটি প্রশ্নের উত্তর সিলেক্ট করে ডানপাশের **'উত্তর চেক করো'** বাটনে ক্লিক করলেই বুঝতে পারবে সঠিক হয়েছে কি না এবং সাথে সাথেই সঠিক ব্যাখ্যা দেখতে পাবে।</p>", unsafe_allow_html=True)
-        
-        for i, q in enumerate(st.session_state.quiz_questions):
-            st.markdown(f"""
-                <div style="background: rgba(31, 41, 55, 0.45); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 16px; padding: 22px; margin-bottom: 24px;">
-            """, unsafe_allow_html=True)
-            
-            # Layout: Left column for question & inline instant feedback, Right column for vertically stacked options
-            q_col, opt_col = st.columns([3, 2])
-            
-            with q_col:
-                st.markdown(f"**প্রশ্ন {i+1}:** {q['question']}")
-                
-            with opt_col:
-                st.markdown("<p style='font-size: 0.85rem; color: #9ca3af; margin-bottom: 2px; font-weight: 600;'>অপশনসমূহ:</p>", unsafe_allow_html=True)
-                selected_option = st.radio(
-                    f"উত্তর নির্বাচন করো #{i+1}", 
-                    q['options'], 
-                    key=f"q_radio_{i}", 
-                    label_visibility="collapsed",
-                    index=None
-                )
-            
-            col_b1, col_b2 = st.columns([1, 3])
-            with col_b1:
-                check_btn = st.button(f"উত্তর চেক #{i+1}", key=f"check_btn_{i}")
-            
-            if check_btn:
-                st.session_state.user_ans[i] = selected_option
-                st.session_state.checked_status[i] = True
-                
-                # Stats update logic
-                if selected_option == q['correct_answer']:
-                    st.session_state.stats["total_attempted"] += 1
-                    st.session_state.stats["total_correct"] += 1
-                elif selected_option is not None:
-                    st.session_state.stats["total_attempted"] += 1
-                    mistake_item = {
-                        "question": q['question'],
-                        "options": q['options'],
-                        "correct_answer": q['correct_answer'],
-                        "explanation": q['explanation']
-                    }
-                    if mistake_item not in st.session_state.mistakes:
-                        st.session_state.mistakes.append(mistake_item)
-
-            # Instant inline feedback right on the spot
-            if st.session_state.checked_status.get(i, False):
-                user_choice = st.session_state.user_ans.get(i)
-                if user_choice is None:
-                    st.warning("⚠️ দয়া করে যেকোনো একটি অপশন সিলেক্ট করুন।")
-                elif user_choice == q['correct_answer']:
-                    st.markdown(f"""
-                        <div style="background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.3); padding: 12px 16px; border-radius: 12px; margin-top: 14px; color: #34d399;">
-                            <b>✅ দুর্দান্ত! সঠিক উত্তর।</b><br><span style="font-size: 0.9rem; color: #e5e7eb;">💡 ব্যাখ্যা: {q['explanation']}</span>
-                        </div>
-                    """, unsafe_allow_html=True)
-                else:
-                    st.markdown(f"""
-                        <div style="background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.3); padding: 12px 16px; border-radius: 12px; margin-top: 14px; color: #f87171;">
-                            <b>❌ ভুল হয়েছে!</b> সঠিক উত্তরটি হলো: <b>{q['correct_answer']}</b><br><span style="font-size: 0.9rem; color: #e5e7eb;">💡 ব্যাখ্যা: {q['explanation']}</span>
-                        </div>
-                    """, unsafe_allow_html=True)
-
-            st.markdown("</div>", unsafe_allow_html=True)
-    else:
-        st.info("প্রথমে 'ফাইল/টেক্সট জেনারেটর' বা 'লাইভ ইন্টারনেট' ট্যাব থেকে কুইজ জেনারেট করে নিন।")
-    st.markdown('</div>', unsafe_allow_html=True)
-
-with tab4:
-    st.markdown('<div class="glass-card">', unsafe_allow_html=True)
-    st.subheader("❌ ভুল সংশোধন ও রিটেস্ট মোড")
-    if st.session_state.mistakes:
-        st.markdown(f"টোটাল সংরক্ষিত ভুল প্রশ্ন: **{len(st.session_state.mistakes)} টি**")
-        col_a, col_b = st.columns(2)
-        with col_a:
-            if st.button("🔄 শুধু ভুল প্রশ্নগুলো নিয়ে রিটেস্ট দাও"):
-                st.session_state.quiz_questions = st.session_state.mistakes
-                st.session_state.user_ans = {}
-                st.session_state.checked_status = {}
-                st.success("ভুল প্রশ্নগুলো দিয়ে রিটেস্ট লোড করা হয়েছে! 'লাইভ পরীক্ষা' ট্যাবে গিয়ে পরীক্ষা দাও।")
-                st.rerun()
-        with col_b:
-            if st.button("🗑️ ভুলের খাতা ক্লিয়ার করো"):
-                st.session_state.mistakes = []
-                st.rerun()
-                
-        for idx, m in enumerate(st.session_state.mistakes):
-            with st.expander(f"ভুল #{idx+1}: {m['question'][:50]}..."):
-                st.write(f"✅ সঠিক উত্তর: {m['correct_answer']}")
-                st.info(f"💡 ব্যাখ্যা: {m['explanation']}")
-    else:
-        st.success("অভিনন্দন! আপনার কোনো ভুল রেকর্ড করা হয়নি।")
-    st.markdown('</div>', unsafe_allow_html=True)
-
-with tab5:
-    st.markdown('<div class="glass-card">', unsafe_allow_html=True)
-    st.subheader("📊 পারফরম্যান্স অ্যানালিটিক্স ও রিপোর্ট এক্সপোর্ট")
-    stats = st.session_state.stats
-    total_att = stats["total_attempted"]
-    total_corr = stats["total_correct"]
-    overall_acc = (total_corr / total_att * 100) if total_att > 0 else 0
-    
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("মোট প্রশ্ন এটেন্ড", total_att)
-    with col2:
-        st.metric("সঠিক উত্তর", total_corr)
-    with col3:
-        st.metric("গ্রোথ / একুরেসি", f"{overall_acc:.1f}%")
-    
-    if stats["history"] or total_att > 0:
-        report_text = f"--- Varsity Quiz Pro Growth Report ---\nTotal Attempted: {total_att}\nTotal Correct: {total_corr}\nOverall Accuracy: {overall_acc:.1f}%\nSaved Mistakes: {len(st.session_state.mistakes)}\n"
-        st.download_button(
-            label="📥 গ্রোথ রিপোর্ট ডাউনলোড করো (TXT)",
-            data=report_text,
-            file_name="growth_report.txt",
-            mime="text/plain"
-        )
-    else:
-        st.info("কুইজ সাবমিট করার পর এখানে রিপোর্ট এক্সপোর্ট অপশন দেখতে পাবে।")
-    st.markdown('</div>', unsafe_allow_html=True)
-    
+                        "correct
+                    
