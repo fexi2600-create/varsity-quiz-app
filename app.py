@@ -171,20 +171,25 @@ with tab1:
         with col2:
             num_questions = st.number_input("🔢 প্রশ্নের সংখ্যা (৫-৫০০):", min_value=5, max_value=500, value=15, key="num1")
 
-        upload_type = st.radio("📥 ইনপুট মাধ্যম:", ["পিডিএফ ফাইল বা ছবি/স্ক্রিনশট আপলোড", "সরাসরি টেক্সট পেস্ট"])
-        extracted_content = None
-        uploaded_image = None
+        upload_type = st.radio("📥 ইনপুট মাধ্যম:", ["একাধিক পিডিএফ বা ছবি/স্ক্রিনশট আপলোড", "সরাসরি টেক্সট পেস্ট"])
+        extracted_content = ""
+        uploaded_images = []
 
-        if upload_type == "পিডিএফ ফাইল বা ছবি/স্ক্রিনশট আপলোড":
-            uploaded_file = st.file_uploader("পিডিএফ বা ছবি/স্ক্রিনশট (PDF, PNG, JPG) আপলোড করুন", type=["pdf", "png", "jpg", "jpeg"])
-            if uploaded_file is not None:
-                if uploaded_file.type == "application/pdf":
-                    bytes_data = uploaded_file.read()
-                    extracted_content = extract_large_pdf_text(bytes_data)
-                    st.success("⚡ বড় পিডিএফ ফাইল সফলভাবে পড়া হয়েছে!")
-                else:
-                    uploaded_image = Image.open(uploaded_file)
-                    st.success("✅ ছবি বা স্ক্রিনশট সফলভাবে আপলোড হয়েছে!")
+        if upload_type == "একাধিক পিডিএফ বা ছবি/স্ক্রিনশট আপলোড":
+            uploaded_files = st.file_uploader(
+                "একাধিক পিডিএফ বা ছবি/স্ক্রিনশট (PDF, PNG, JPG) একসাথে আপলোড করুন", 
+                type=["pdf", "png", "jpg", "jpeg"], 
+                accept_multiple_files=True
+            )
+            if uploaded_files:
+                for uploaded_file in uploaded_files:
+                    if uploaded_file.type == "application/pdf":
+                        bytes_data = uploaded_file.read()
+                        extracted_content += extract_large_pdf_text(bytes_data) + "\n"
+                    else:
+                        img = Image.open(uploaded_file)
+                        uploaded_images.append(img)
+                st.success(f"⚡ সফলভাবে আপলোড হয়েছে: {len(uploaded_images)} টি ছবি এবং পিডিএফ ডেটা প্রসেস হয়েছে!")
         else:
             extracted_content = st.text_area("✍️ পড়ার টপিক বা বড় নোটস পেস্ট করুন:")
 
@@ -194,17 +199,17 @@ with tab1:
     if generate_btn:
         if not api_key:
             st.error("প্রথমে এপিআই কি সেট করুন!")
-        elif not extracted_content and not uploaded_image:
-            st.error("⚠️ কোনো পিডিএফ, ছবি বা টেক্সট ইনপুট দিন!")
+        elif not extracted_content.strip() and not uploaded_images:
+            st.error("⚠️ কোনো ফাইল বা টেক্সট ইনপুট দিন!")
         else:
-            with st.spinner("🚀 ডকুমেন্ট প্রসেস করে এক্সিকিউটিভ প্রশ্ন তৈরি হচ্ছে..."):
+            with st.spinner("🚀 ডকুমেন্ট ও ছবিগুলো প্রসেস করে এক্সিকিউটিভ প্রশ্ন তৈরি হচ্ছে..."):
                 try:
                     model = genai.GenerativeModel('gemini-2.5-flash')
                     prompt = (
                         f"তুমি ঢাকা বিশ্ববিদ্যালয় ভর্তি পরীক্ষার একজন এক্সপার্ট প্রশ্ন প্রণেতা। "
-                        f"নিচের কন্টেন্ট থেকে খুব সতর্কতার সাথে ঠিক {num_questions} টি উচ্চমানের বহুনির্বাচনী প্রশ্ন (MCQ) তৈরি করো '{subject}' বিষয়ের জন্য। "
+                        f"নিচের আপলোডকৃত কন্টেন্ট/ছবিগুলো থেকে খুব সতর্কতার সাথে ঠিক {num_questions} টি উচ্চমানের বহুনির্বাচনী প্রশ্ন (MCQ) তৈরি করো '{subject}' বিষয়ের জন্য। "
                         "প্রশ্নগুলো যেন স্ট্যান্ডার্ড ও মানসম্মত হয়। "
-                        "শুধুমাত্র একটি নিখুঁত JSON Array আউটপুট দেবে অন্য কোনো টেক্সট ছাড়া:\n"
+                        "শুধুমাত্র একটি নিখুঁত JSON Array আউটপুট দেবে অন্য কোনো টেক্সট বা ব্যাকটিক্স ছাড়া:\n"
                         "[\n"
                         "  {\n"
                         '    "question": "প্রশ্ন এখানে লিখবে?",\n'
@@ -214,11 +219,16 @@ with tab1:
                         "  }\n"
                         "]"
                     )
-                    if uploaded_image:
-                        response = model.generate_content([prompt, uploaded_image])
-                    else:
+                    
+                    # Prepare contents list for Gemini (can take multiple images + text prompt)
+                    contents = [prompt]
+                    if uploaded_images:
+                        contents.extend(uploaded_images)
+                    if extracted_content.strip():
                         safe_content = extracted_content[:50000] if len(extracted_content) > 50000 else extracted_content
-                        response = model.generate_content(prompt + "\n\nডকুমেন্ট কন্টেন্ট:\n" + safe_content)
+                        contents.append(f"\nডকুমেন্ট কন্টেন্ট:\n{safe_content}")
+                        
+                    response = model.generate_content(contents)
                     
                     clean_text = response.text.strip().replace("```json", "").replace("```", "").strip()
                     st.session_state.quiz_questions = json.loads(clean_text)
@@ -388,3 +398,4 @@ with tab5:
     else:
         st.info("কুইজ সাবমিট করার পর এখানে রিপোর্ট এক্সপোর্ট অপশন দেখতে পাবে।")
     st.markdown('</div>', unsafe_allow_html=True)
+            
