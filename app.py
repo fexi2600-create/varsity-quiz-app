@@ -136,19 +136,19 @@ api_key = st.secrets.get("GEMINI_API_KEY") if "GEMINI_API_KEY" in st.secrets els
 if api_key:
     genai.configure(api_key=api_key)
 
-# Dynamic Working Model Finder
+# Dynamic Working Model Finder (Updated to gemini-3.6-flash)
 def get_working_model():
     try:
         models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        # Priority check for preferred flash models
-        for preferred in ['models/gemini-2.0-flash', 'models/gemini-1.5-flash-latest', 'models/gemini-1.5-pro-latest']:
+        # Priority check for the new required model
+        for preferred in ['models/gemini-3.6-flash', 'models/gemini-2.0-flash', 'models/gemini-1.5-flash']:
             if preferred in models:
                 return preferred
         if models:
             return models[0]
     except Exception:
         pass
-    return 'gemini-2.0-flash'
+    return 'models/gemini-3.6-flash'
 
 # Safe JSON Parser
 def safe_parse_json(text):
@@ -367,3 +367,4 @@ with tab5:
     with col3:
         st.metric("একুরেসি", f"{accuracy:.1f}%")
     st.markdown('</div>', unsafe_allow_html=True)
+    
