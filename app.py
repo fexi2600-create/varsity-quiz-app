@@ -5,6 +5,7 @@ from PIL import Image
 import json
 import io
 import re
+import time
 
 # Page Configuration
 st.set_page_config(
@@ -136,19 +137,30 @@ api_key = st.secrets.get("GEMINI_API_KEY") if "GEMINI_API_KEY" in st.secrets els
 if api_key:
     genai.configure(api_key=api_key)
 
-# Dynamic Working Model Finder (Updated to gemini-3.6-flash)
-def get_working_model():
-    try:
-        models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        # Priority check for the new required model
-        for preferred in ['models/gemini-3.6-flash', 'models/gemini-2.0-flash', 'models/gemini-1.5-flash']:
-            if preferred in models:
-                return preferred
-        if models:
-            return models[0]
-    except Exception:
-        pass
-    return 'models/gemini-3.6-flash'
+# Smart Multi-Model Generator with Automatic Fallback for 429 Quota Exceeded
+def generate_content_with_fallback(contents):
+    candidate_models = [
+        'models/gemini-1.5-flash',
+        'models/gemini-2.0-flash',
+        'models/gemini-3.6-flash',
+        'models/gemini-1.5-pro'
+    ]
+    
+    last_error = None
+    for model_name in candidate_models:
+        try:
+            model = genai.GenerativeModel(model_name)
+            response = model.generate_content(contents)
+            return response.text
+        except Exception as e:
+            last_error = e
+            err_msg = str(e).lower()
+            if "429" in err_msg or "quota" in err_msg or "resourceexhausted" in err_msg:
+                continue
+            else:
+                continue
+                
+    raise RuntimeError(f"সকল জেমিনি মডেলে কোটা শেষ হয়ে গেছে। অনুগ্রহ করে ৩০-৪০ সেকেন্ড অপেক্ষা করে চেষ্টা করুন। মূল ত্রুটি: {last_error}")
 
 # Safe JSON Parser
 def safe_parse_json(text):
@@ -216,11 +228,8 @@ with tab1:
         if not extracted_content.strip() and not uploaded_images:
             st.error("⚠️ কোনো ইনপুট পাওয়া যায়নি!")
         else:
-            with st.spinner("🚀 AI সচল মডেল নির্বাচন করে প্রশ্ন জেনারেট করছে..."):
+            with st.spinner("🚀 কোটা চেক করে সচল মডেলের মাধ্যমে প্রশ্ন তৈরি হচ্ছে..."):
                 try:
-                    active_model = get_working_model()
-                    model = genai.GenerativeModel(active_model)
-                    
                     prompt = (
                         f"তুমি ঢাকা বিশ্ববিদ্যালয় ভর্তি পরীক্ষার একজন এক্সপার্ট প্রশ্ন প্রণেতা। "
                         f"নিচের আপলোডকৃত ফাইল/টেক্সট থেকে ঠিক {num_questions} টি উচ্চমানের বহুনির্বাচনী প্রশ্ন (MCQ) তৈরি করো '{subject}' বিষয়ের জন্য। "
@@ -241,13 +250,13 @@ with tab1:
                     if extracted_content.strip():
                         contents.append(f"\nকন্টেন্ট:\n{extracted_content[:40000]}")
                         
-                    response = model.generate_content(contents)
-                    st.session_state.quiz_questions = safe_parse_json(response.text)
+                    raw_response = generate_content_with_fallback(contents)
+                    st.session_state.quiz_questions = safe_parse_json(raw_response)
                     st.session_state.user_ans = {}
                     st.session_state.checked_status = {}
                     st.success("🎉 কুইজ তৈরি সম্পন্ন হয়েছে! 'লাইভ পরীক্ষা' ট্যাবে চলে যাও।")
                 except Exception as e:
-                    st.error(f"কুইজ জেনারেট করতে সমস্যা হয়েছে: {e}")
+                    st.error(f"{e}")
 
 with tab2:
     st.markdown('<div class="glass-card">', unsafe_allow_html=True)
@@ -263,8 +272,6 @@ with tab2:
         else:
             with st.spinner("🌐 সাম্প্রতিক তথ্য সংগ্রহ করা হচ্ছে..."):
                 try:
-                    active_model = get_working_model()
-                    model = genai.GenerativeModel(active_model)
                     web_prompt = (
                         f"ইন্টারনেট থেকে সাম্প্রতিকতম তথ্য নিয়ে '{live_topic}' বিষয়ের ওপর ঠিক {live_num} টি MCQ তৈরি করো। "
                         "শুধুমাত্র একটি নিখুঁত JSON Array আউটপুট দেবে:\n"
@@ -277,13 +284,13 @@ with tab2:
                         "  }\n"
                         "]"
                     )
-                    response = model.generate_content(web_prompt)
-                    st.session_state.quiz_questions = safe_parse_json(response.text)
+                    raw_response = generate_content_with_fallback([web_prompt])
+                    st.session_state.quiz_questions = safe_parse_json(raw_response)
                     st.session_state.user_ans = {}
                     st.session_state.checked_status = {}
                     st.success("🎉 কুইজ তৈরি হয়েছে! 'লাইভ পরীক্ষা' ট্যাবে পরীক্ষা দিন।")
                 except Exception as e:
-                    st.error(f"ত্রুটি: {e}")
+                    st.error(f"{e}")
 
 with tab3:
     st.markdown('<div class="glass-card">', unsafe_allow_html=True)
