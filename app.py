@@ -38,53 +38,45 @@ st.markdown("""
         margin-bottom: 24px;
         transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
     }
-    
-    .glass-card:hover {
-        border-color: rgba(99, 102, 241, 0.4);
-        box-shadow: 0 25px 60px rgba(99, 102, 241, 0.2);
-    }
 
     /* Flipbook Realistic Page Styling */
-    .book-container {
-        display: flex;
-        justify-content: center;
-        margin: 20px 0;
-    }
-
     .book-page-sepia {
         background: #fbf0d9;
         color: #2b2b2b;
-        padding: 35px 40px;
+        padding: 35px 30px;
         border-radius: 6px 18px 18px 6px;
         box-shadow: 12px 12px 35px rgba(0,0,0,0.6), inset 22px 0 30px rgba(0,0,0,0.08);
         border-left: 8px solid #8b5cf6;
         min-height: 480px;
         font-size: 1.15rem;
         line-height: 1.8;
+        margin-bottom: 20px;
     }
 
     .book-page-dark {
         background: #0f172a;
         color: #f1f5f9;
-        padding: 35px 40px;
+        padding: 35px 30px;
         border-radius: 6px 18px 18px 6px;
         box-shadow: 12px 12px 35px rgba(0,0,0,0.8), inset 22px 0 30px rgba(255,255,255,0.03);
         border-left: 8px solid #6366f1;
         min-height: 480px;
         font-size: 1.15rem;
         line-height: 1.8;
+        margin-bottom: 20px;
     }
 
     .book-page-white {
         background: #ffffff;
         color: #0f172a;
-        padding: 35px 40px;
+        padding: 35px 30px;
         border-radius: 6px 18px 18px 6px;
         box-shadow: 12px 12px 35px rgba(0,0,0,0.3), inset 22px 0 30px rgba(0,0,0,0.05);
         border-left: 8px solid #3b82f6;
         min-height: 480px;
         font-size: 1.15rem;
         line-height: 1.8;
+        margin-bottom: 20px;
     }
 
     .main-title {
@@ -112,7 +104,7 @@ st.markdown("""
         color: #ffffff;
         font-weight: 700;
         font-size: 0.95rem;
-        padding: 12px 24px;
+        padding: 12px 20px;
         border-radius: 14px;
         border: none;
         box-shadow: 0 8px 25px -5px rgba(99, 102, 241, 0.4);
@@ -170,6 +162,8 @@ if "checked_status" not in st.session_state:
 # Book Reader State
 if "reader_pages" not in st.session_state:
     st.session_state.reader_pages = []
+if "cleaned_pages" not in st.session_state:
+    st.session_state.cleaned_pages = {}
 if "current_page_idx" not in st.session_state:
     st.session_state.current_page_idx = 0
 
@@ -208,7 +202,7 @@ def generate_content_with_fallback(contents):
             last_error = e
             continue
             
-    raise RuntimeError(f"কুইজ তৈরি করা সম্ভব হয়নি। সাইডবারে নতুন API Key দিন। ভুল: {last_error}")
+    raise RuntimeError(f"কন্টেন্ট তৈরি করা সম্ভব হয়নি। ভুল: {last_error}")
 
 # Safe JSON Parser
 def safe_parse_json(text):
@@ -230,12 +224,26 @@ def extract_pdf_pages(file_bytes):
         pages.append(text if text.strip() else "[এই পৃষ্ঠায় কোনো পড়ার উপযোগী টেক্সট পাওয়া যায়নি]")
     return pages
 
+# Bijoy/ANSI Text Converter function using AI
+def fix_bijoy_bangla_text(raw_text):
+    if re.search(r'[†‡‰ˆª¤«»ª]', raw_text) or "mvaviY" in raw_text or "nvBjvBUm" in raw_text:
+        prompt = (
+            "The following text is Bengali written in Bijoy/SutonnyMJ ANSI font, showing up as corrupted characters. "
+            "Convert it accurately into clean Unicode Bengali text. Do not summarize or alter the meaning. "
+            "Output ONLY the converted Unicode Bengali text:\n\n" + raw_text
+        )
+        try:
+            return generate_content_with_fallback([prompt])
+        except Exception:
+            return raw_text
+    return raw_text
+
 # Header Component
 st.markdown('<div class="main-title">Varsity Quiz & Book Reader</div>', unsafe_allow_html=True)
 st.markdown('<div class="sub-title">AI-Powered Exam Engine & Smart PDF Flipbook</div>', unsafe_allow_html=True)
 
 if not api_key:
-    st.error("⚠️ দয়া করে সাইডবারে আপনার Gemini API Key প্রদান করুন অথবা Streamlit Secrets-এ সেট করুন।")
+    st.error("⚠️ দয়া করে সাইডবারে আপনার Gemini API Key প্রদান করুন।")
 
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "🚀 ফাইল/টেক্সট কুইজ", 
@@ -303,10 +311,10 @@ with tab1:
                 except Exception as e:
                     st.error(f"{e}")
 
-# ----------------- TAB 2: PDF BOOK FLIPBOOK READER -----------------
+# ----------------- TAB 2: PDF BOOK FLIPBOOK READER & TOPIC EXTRACTOR -----------------
 with tab2:
     st.markdown('<div class="glass-card">', unsafe_allow_html=True)
-    st.subheader("📖 পিডিএফ বই রিডার (Interactive Page Flipbook)")
+    st.subheader("📖 পিডিএফ বই রিডার ও ইম্পর্টেন্ট টপিক হাইলাইটার")
     
     reader_file = st.file_uploader("📚 পড়ার জন্য পিডিএফ বইটি আপলোড করুন:", type=["pdf"], key="book_reader_file")
     
@@ -317,62 +325,102 @@ with tab2:
         if st.session_state.reader_pages:
             total_p = len(st.session_state.reader_pages)
             
-            # Control Bar & Theme Switcher
+            # Top Controls
             col_theme, col_slider = st.columns([1, 2])
             with col_theme:
                 theme = st.selectbox("🎨 থিম নির্বাচন করুন:", ["📜 সেপিয়া (বইয়ের পাতা)", "🌙 ডার্ক মোড", "☀️ ক্লাসিক হোয়াইট"])
             with col_slider:
                 st.session_state.current_page_idx = st.slider(
-                    "পৃষ্ঠা নির্বাচন করুন:", 
+                    "পৃষ্ঠা জাম্প করুন:", 
                     min_value=1, 
                     max_value=total_p, 
                     value=st.session_state.current_page_idx + 1 if st.session_state.current_page_idx < total_p else 1
                 ) - 1
 
-            # Page Flip Buttons
-            col_prev, col_info, col_next = st.columns([1, 1, 1])
-            with col_prev:
-                if st.button("◀ পূর্ববর্তী পাতা", key="prev_p"):
-                    if st.session_state.current_page_idx > 0:
-                        st.session_state.current_page_idx -= 1
-                        st.rerun()
-            with col_info:
-                st.markdown(f"<h4 style='text-align:center; color:#38bdf8;'>পৃষ্ঠা {st.session_state.current_page_idx + 1} / {total_p}</h4>", unsafe_allow_html=True)
-            with col_next:
-                if st.button("পরবর্তী পাতা ▶", key="next_p"):
-                    if st.session_state.current_page_idx < total_p - 1:
-                        st.session_state.current_page_idx += 1
-                        st.rerun()
+            curr_idx = st.session_state.current_page_idx
+            raw_page_content = st.session_state.reader_pages[curr_idx]
 
-            # Render Book Page with Selected Theme
-            page_content = st.session_state.reader_pages[st.session_state.current_page_idx]
-            
+            # Auto Clean Bijoy/ANSI Broken Text
+            if curr_idx not in st.session_state.cleaned_pages:
+                if re.search(r'[†‡‰ˆª¤«»ª]', raw_page_content) or "mvaviY" in raw_page_content:
+                    with st.spinner("✨ বিজয় ফন্টকে স্পষ্ট বাংলায় রূপান্তর করা হচ্ছে..."):
+                        clean_txt = fix_bijoy_bangla_text(raw_page_content)
+                        st.session_state.cleaned_pages[curr_idx] = clean_txt
+                else:
+                    st.session_state.cleaned_pages[curr_idx] = raw_page_content
+
+            page_content = st.session_state.cleaned_pages.get(curr_idx, raw_page_content)
+
+            # Theme Selection
             theme_class = "book-page-sepia"
             if "ডার্ক" in theme:
                 theme_class = "book-page-dark"
             elif "হোয়াইট" in theme:
                 theme_class = "book-page-white"
 
+            # Render Page
             st.markdown(f"""
                 <div class="{theme_class}">
-                    <div style="text-align: right; font-size: 0.85rem; opacity: 0.6; margin-bottom: 10px;">Page {st.session_state.current_page_idx + 1}</div>
+                    <div style="text-align: right; font-size: 0.85rem; opacity: 0.6; margin-bottom: 12px;">পৃষ্ঠা {curr_idx + 1} / {total_p}</div>
                     <div>{page_content.replace('\n', '<br>')}</div>
                 </div>
             """, unsafe_allow_html=True)
 
-            # AI Page Assistant
+            # --- Page Navigation Bar (Bottom) ---
+            col_prev, col_info, col_next = st.columns([1, 1, 1])
+            with col_prev:
+                if st.button("◀ পূর্ববর্তী পাতা", key="prev_p_bottom"):
+                    if st.session_state.current_page_idx > 0:
+                        st.session_state.current_page_idx -= 1
+                        st.rerun()
+            with col_info:
+                st.markdown(f"<h4 style='text-align:center; color:#38bdf8; margin:8px 0;'>পৃষ্ঠা {curr_idx + 1} / {total_p}</h4>", unsafe_allow_html=True)
+            with col_next:
+                if st.button("পরবর্তী পাতা ▶", key="next_p_bottom"):
+                    if st.session_state.current_page_idx < total_p - 1:
+                        st.session_state.current_page_idx += 1
+                        st.rerun()
+
+            # --- AI TOOLS: IMPORTANT TOPIC EXTRACTOR & ASSISTANT ---
             st.write("---")
-            if st.button("🤖 AI Assistant: এই পৃষ্ঠা সহজ ভাষায় বুঝিয়ে দাও"):
-                if api_key:
-                    with st.spinner("🧠 পৃষ্ঠা বিশ্লেষণ করে সহজ ব্যাখ্যা তৈরি হচ্ছে..."):
-                        try:
-                            explain_prompt = f"নিচের পৃষ্ঠা থেকে প্রধান পড়ার বিষয় ও সহজ ভাষায় মূলভাব সুন্দর করে বুঝিয়ে দাও:\n\n{page_content[:4000]}"
-                            ai_exp = generate_content_with_fallback([explain_prompt])
-                            st.info(f"💡 **এই পাতার সহজ কথা:**\n\n{ai_exp}")
-                        except Exception as e:
-                            st.error(f"ব্যাখ্যা প্রদান করা সম্ভব হয়নি: {e}")
-                else:
-                    st.warning("সাইডবারে API Key দিন।")
+            st.markdown("### 🎯 AI Smart Tools (স্মার্ট টুলস)")
+            
+            col_ai1, col_ai2 = st.columns(2)
+            
+            with col_ai1:
+                if st.button("🎯 এই পাতার ইম্পর্টেন্ট টপিক আলাদা করো"):
+                    if api_key:
+                        with st.spinner("🔍 গুরুত্বপূর্ণ টপিক ও বুলেট পয়েন্ট আলাদা করা হচ্ছে..."):
+                            try:
+                                topic_prompt = (
+                                    "নিচের টেক্সট থেকে পরীক্ষার জন্য সবচেয়ে গুরুত্বপূর্ণ টপিকগুলো বুলেট পয়েন্ট আকারে সুন্দরভাবে সাজিয়ে দাও। "
+                                    "গুরুত্বপূর্ণ শব্দগুলো **Bold** করে দাও:\n\n" + page_content[:4000]
+                                )
+                                topics = generate_content_with_fallback([topic_prompt])
+                                st.success("📌 **এই পাতার গুরুত্বপূর্ণ টপিকসমূহ:**")
+                                st.markdown(f"<div style='background: rgba(15,23,42,0.8); padding: 18px; border-radius: 14px; border: 1px solid rgba(56,189,248,0.3);'>{topics}</div>", unsafe_allow_html=True)
+                            except Exception as e:
+                                st.error(f"টপিক বের করতে সমস্যা হয়েছে: {e}")
+                    else:
+                        st.warning("সাইডবারে API Key দিন।")
+
+            with col_ai2:
+                if st.button("📌 পুরো বইয়ের গুরুত্বপূর্ণ মাস্টার নোটস"):
+                    if api_key:
+                        with st.spinner("📚 পুরো পিডিএফ বিশ্লেষণ করে মাস্টার নোটস তৈরি করা হচ্ছে..."):
+                            try:
+                                full_text = "\n".join([st.session_state.cleaned_pages.get(i, p) for i, p in enumerate(st.session_state.reader_pages)])[:30000]
+                                master_prompt = (
+                                    "তুমি একজন এডমিশন ও এক্সাম স্পেশালিস্ট। নিচের পুরো পিডিএফ থেকে সবচেয়ে গুরুত্বপূর্ণ হেডলাইন, "
+                                    "সাধারণ জ্ঞান/জরুরি তথ্য এবং রিভিশন পয়েন্ট তালিকা আকারে তৈরি করে দাও:\n\n" + full_text
+                                )
+                                master_notes = generate_content_with_fallback([master_prompt])
+                                st.info("🏆 **সম্পূর্ণ পিডিএফ-এর মাস্টার ইম্পর্টেন্ট পয়েন্ট:**")
+                                st.markdown(f"<div style='background: rgba(15,23,42,0.8); padding: 18px; border-radius: 14px; border: 1px solid rgba(168,85,247,0.3);'>{master_notes}</div>", unsafe_allow_html=True)
+                            except Exception as e:
+                                st.error(f"মাস্টার নোট তৈরি করা সম্ভব হয়নি: {e}")
+                    else:
+                        st.warning("সাইডবারে API Key দিন।")
     else:
         st.info("👆 একটি পিডিএফ বই আপলোড করলেই তা সুন্দর ডিজিটাল বইয়ের মতো পড়া শুরু করতে পারবেন।")
     st.markdown('</div>', unsafe_allow_html=True)
@@ -423,54 +471,4 @@ with tab4:
                 if selected_option == q['correct_answer']:
                     st.session_state.stats["total_attempted"] += 1
                     st.session_state.stats["total_correct"] += 1
-                elif selected_option is not None:
-                    st.session_state.stats["total_attempted"] += 1
-                    mistake_item = {"question": q['question'], "correct_answer": q['correct_answer'], "explanation": q['explanation']}
-                    if mistake_item not in st.session_state.mistakes:
-                        st.session_state.mistakes.append(mistake_item)
-
-            if st.session_state.checked_status.get(i, False):
-                user_choice = st.session_state.user_ans.get(i)
-                if user_choice is None:
-                    st.warning("⚠️ একটি অপশন নির্বাচন করুন।")
-                elif user_choice == q['correct_answer']:
-                    st.success(f"✅ সঠিক উত্তর! 💡 ব্যাখ্যা: {q['explanation']}")
-                else:
-                    st.error(f"❌ ভুল উত্তর! সঠিক উত্তর: {q['correct_answer']} | 💡 ব্যাখ্যা: {q['explanation']}")
-    else:
-        st.info("প্রথমে প্রথম বা তৃতীয় ট্যাব থেকে কুইজ জেনারেট করে নিন।")
-    st.markdown('</div>', unsafe_allow_html=True)
-
-# ----------------- TAB 5: MISTAKES NOTEBOOK -----------------
-with tab5:
-    st.markdown('<div class="glass-card">', unsafe_allow_html=True)
-    st.subheader("❌ ভুলের খাতা")
-    if st.session_state.mistakes:
-        st.write(f"মোট ভুল প্রশ্ন: **{len(st.session_state.mistakes)} টি**")
-        if st.button("🗑️ ভুলের রেকর্ড ক্লিয়ার করো"):
-            st.session_state.mistakes = []
-            st.rerun()
-            
-        for idx, m in enumerate(st.session_state.mistakes):
-            with st.expander(f"ভুল #{idx+1}: {m['question']}"):
-                st.write(f"✅ সঠিক উত্তর: {m['correct_answer']}")
-                st.info(f"💡 ব্যাখ্যা: {m['explanation']}")
-    else:
-        st.success("এখনো কোনো ভুলের রেকর্ড নেই!")
-    st.markdown('</div>', unsafe_allow_html=True)
-
-# ----------------- TAB 6: ANALYTICS -----------------
-with tab6:
-    st.markdown('<div class="glass-card">', unsafe_allow_html=True)
-    st.subheader("📊 পারফরম্যান্স অ্যানালিটিক্স")
-    stats = st.session_state.stats
-    total_att = stats["total_attempted"]
-    total_corr = stats["total_correct"]
-    accuracy = (total_corr / total_att * 100) if total_att > 0 else 0
-    
-    col1, col2, col3 = st.columns(3)
-    with col1: st.metric("মোট এটেন্ড", total_att)
-    with col2: st.metric("সঠিক উত্তর", total_corr)
-    with col3: st.metric("একুরেসি", f"{accuracy:.1f}%")
-    st.markdown('</div>', unsafe_allow_html=True)
-            
+  
