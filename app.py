@@ -473,4 +473,4 @@ with tab4:
     st.markdown('<div class="glass-card">', unsafe_allow_html=True)
     st.subheader("✍️ লাইভ মক টেস্ট")
     
-    if st.session_state.quiz_
+    # ❌ The error was here. I
