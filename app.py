@@ -365,6 +365,9 @@ with tab2:
             curr_idx = st.session_state.current_page_idx
             raw_page_content = st.session_state.reader_pages[curr_idx]
             page_content = st.session_state.cleaned_pages.get(curr_idx, raw_page_content)
+            
+            # Line break handling outside f-string to prevent SyntaxError
+            html_page_content = page_content.replace('\n', '<br>')
 
             # Theme Selection
             theme_class = "book-page-sepia"
@@ -374,12 +377,13 @@ with tab2:
                 theme_class = "book-page-white"
 
             # Render Page
-            st.markdown(f"""
+            page_html = f"""
                 <div class="{theme_class}">
                     <div style="text-align: right; font-size: 0.85rem; opacity: 0.6; margin-bottom: 12px;">পৃষ্ঠা {curr_idx + 1} / {total_p}</div>
-                    <div>{page_content.replace('\n', '<br>')}</div>
+                    <div>{html_page_content}</div>
                 </div>
-            """, unsafe_allow_html=True)
+            """
+            st.markdown(page_html, unsafe_allow_html=True)
 
             # --- Page Navigation Bar (Bottom) ---
             col_prev, col_info, col_next = st.columns([1, 1, 1])
@@ -469,7 +473,4 @@ with tab4:
     st.markdown('<div class="glass-card">', unsafe_allow_html=True)
     st.subheader("✍️ লাইভ মক টেস্ট")
     
-    if st.session_state.quiz_questions:
-        for i, q in enumerate(st.session_state.quiz_questions):
-            st.markdown(f"""
-                <div style="background: rgba(30, 41, 59, 0.4); bord
+    if st.session_state.quiz_
