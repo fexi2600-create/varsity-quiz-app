@@ -8,18 +8,18 @@ import re
 
 # Page Configuration
 st.set_page_config(
-    page_title="Varsity Quiz Pro - Executive Edition", 
+    page_title="Varsity Quiz Pro & PDF Reader", 
     page_icon="🎓", 
     layout="centered"
 )
 
-# Advanced Modern Glassmorphism CSS Design
+# Advanced Modern Glassmorphism & Book UI CSS Design
 st.markdown("""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Tiro+Bangla&display=swap');
     
     * {
-        font-family: 'Plus Jakarta Sans', sans-serif;
+        font-family: 'Plus Jakarta Sans', 'Tiro Bangla', sans-serif;
     }
     
     .stApp {
@@ -42,6 +42,49 @@ st.markdown("""
     .glass-card:hover {
         border-color: rgba(99, 102, 241, 0.4);
         box-shadow: 0 25px 60px rgba(99, 102, 241, 0.2);
+    }
+
+    /* Flipbook Realistic Page Styling */
+    .book-container {
+        display: flex;
+        justify-content: center;
+        margin: 20px 0;
+    }
+
+    .book-page-sepia {
+        background: #fbf0d9;
+        color: #2b2b2b;
+        padding: 35px 40px;
+        border-radius: 6px 18px 18px 6px;
+        box-shadow: 12px 12px 35px rgba(0,0,0,0.6), inset 22px 0 30px rgba(0,0,0,0.08);
+        border-left: 8px solid #8b5cf6;
+        min-height: 480px;
+        font-size: 1.15rem;
+        line-height: 1.8;
+    }
+
+    .book-page-dark {
+        background: #0f172a;
+        color: #f1f5f9;
+        padding: 35px 40px;
+        border-radius: 6px 18px 18px 6px;
+        box-shadow: 12px 12px 35px rgba(0,0,0,0.8), inset 22px 0 30px rgba(255,255,255,0.03);
+        border-left: 8px solid #6366f1;
+        min-height: 480px;
+        font-size: 1.15rem;
+        line-height: 1.8;
+    }
+
+    .book-page-white {
+        background: #ffffff;
+        color: #0f172a;
+        padding: 35px 40px;
+        border-radius: 6px 18px 18px 6px;
+        box-shadow: 12px 12px 35px rgba(0,0,0,0.3), inset 22px 0 30px rgba(0,0,0,0.05);
+        border-left: 8px solid #3b82f6;
+        min-height: 480px;
+        font-size: 1.15rem;
+        line-height: 1.8;
     }
 
     .main-title {
@@ -89,14 +132,6 @@ st.markdown("""
         border-radius: 14px !important;
     }
 
-    [data-testid="stMetricValue"] {
-        font-size: 2rem;
-        font-weight: 800;
-        background: linear-gradient(90deg, #38bdf8, #c084fc);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-    }
-    
     .stTabs [data-baseweb="tab-list"] {
         gap: 8px;
         background-color: rgba(15, 23, 42, 0.8);
@@ -132,7 +167,18 @@ if "user_ans" not in st.session_state:
 if "checked_status" not in st.session_state:
     st.session_state.checked_status = {}
 
-api_key = st.secrets.get("GEMINI_API_KEY") if "GEMINI_API_KEY" in st.secrets else None
+# Book Reader State
+if "reader_pages" not in st.session_state:
+    st.session_state.reader_pages = []
+if "current_page_idx" not in st.session_state:
+    st.session_state.current_page_idx = 0
+
+# Sidebar for Custom API Key Input
+with st.sidebar:
+    st.header("⚙️ এপিআই সেটিংস")
+    custom_api_key = st.text_input("আপনার Gemini API Key দিন:", type="password", help="Google AI Studio থেকে নতুন key এনে এখানে বসাতে পারেন।")
+    api_key = custom_api_key if custom_api_key.strip() else st.secrets.get("GEMINI_API_KEY")
+
 if api_key:
     genai.configure(api_key=api_key)
 
@@ -140,7 +186,6 @@ if api_key:
 def generate_content_with_fallback(contents):
     valid_models = []
     try:
-        # Fetch active models dynamically supported by your specific API key
         fetched_models = [
             m.name for m in genai.list_models() 
             if 'generateContent' in m.supported_generation_methods
@@ -163,7 +208,7 @@ def generate_content_with_fallback(contents):
             last_error = e
             continue
             
-    raise RuntimeError(f"কুইজ তৈরি করা সম্ভব হয়নি। নতুন API Key ব্যবহার করুন বা কিছুক্ষণ অপেক্ষা করুন। ত্রুটি: {last_error}")
+    raise RuntimeError(f"কুইজ তৈরি করা সম্ভব হয়নি। সাইডবারে নতুন API Key দিন। ভুল: {last_error}")
 
 # Safe JSON Parser
 def safe_parse_json(text):
@@ -177,24 +222,31 @@ def safe_parse_json(text):
         return []
 
 @st.cache_data
-def extract_large_pdf_text(file_bytes):
+def extract_pdf_pages(file_bytes):
     reader = PdfReader(io.BytesIO(file_bytes))
-    full_text = ""
-    for i, page in enumerate(reader.pages):
+    pages = []
+    for page in reader.pages:
         text = page.extract_text()
-        if text:
-            full_text += f"\n--- Page {i+1} ---\n" + text
-    return full_text
+        pages.append(text if text.strip() else "[এই পৃষ্ঠায় কোনো পড়ার উপযোগী টেক্সট পাওয়া যায়নি]")
+    return pages
 
 # Header Component
-st.markdown('<div class="main-title">Varsity Quiz Pro</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-title">AI-Powered Next Generation Admission Exam Engine</div>', unsafe_allow_html=True)
+st.markdown('<div class="main-title">Varsity Quiz & Book Reader</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-title">AI-Powered Exam Engine & Smart PDF Flipbook</div>', unsafe_allow_html=True)
 
 if not api_key:
-    st.error("⚠️ দয়া করে Streamlit Secrets-এ আপনার GEMINI_API_KEY যুক্ত করুন।")
+    st.error("⚠️ দয়া করে সাইডবারে আপনার Gemini API Key প্রদান করুন অথবা Streamlit Secrets-এ সেট করুন।")
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["🚀 ফাইল/টেক্সট কুইজ", "🌍 লাইভ ইন্টারনেট", "✍️ লাইভ পরীক্ষা", "❌ ভুল নোটবুক", "📊 অ্যানালিটিক্স"])
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    "🚀 ফাইল/টেক্সট কুইজ", 
+    "📖 পিডিএফ বই রিডার", 
+    "🌍 লাইভ ইন্টারনেট", 
+    "✍️ লাইভ পরীক্ষা", 
+    "❌ ভুল নোটবুক", 
+    "📊 অ্যানালিটিক্স"
+])
 
+# ----------------- TAB 1: QUIZ GENERATOR -----------------
 with tab1:
     st.markdown('<div class="glass-card">', unsafe_allow_html=True)
     col1, col2 = st.columns(2)
@@ -216,8 +268,8 @@ with tab1:
         if uploaded_files:
             for uploaded_file in uploaded_files:
                 if uploaded_file.type == "application/pdf":
-                    bytes_data = uploaded_file.read()
-                    extracted_content += extract_large_pdf_text(bytes_data) + "\n"
+                    pages = extract_pdf_pages(uploaded_file.read())
+                    extracted_content += "\n".join(pages) + "\n"
                 else:
                     uploaded_images.append(Image.open(uploaded_file))
             st.success(f"⚡ সফলভাবে আপলোড হয়েছে: {len(uploaded_files)} টি ফাইল প্রসেস করা হয়েছে!")
@@ -231,27 +283,17 @@ with tab1:
         if not extracted_content.strip() and not uploaded_images:
             st.error("⚠️ কোনো ইনপুট পাওয়া যায়নি!")
         else:
-            with st.spinner("🚀 সচল মডেল নির্বাচন করে প্রশ্ন তৈরি হচ্ছে..."):
+            with st.spinner("🚀 প্রশ্ন তৈরি হচ্ছে..."):
                 try:
                     prompt = (
-                        f"তুমি ঢাকা বিশ্ববিদ্যালয় ভর্তি পরীক্ষার একজন এক্সপার্ট প্রশ্ন প্রণেতা। "
-                        f"নিচের আপলোডকৃত ফাইল/টেক্সট থেকে ঠিক {num_questions} টি উচ্চমানের বহুনির্বাচনী প্রশ্ন (MCQ) তৈরি করো '{subject}' বিষয়ের জন্য। "
-                        "শুধুমাত্র একটি বিশুদ্ধ JSON Array আউটপুট দেবে অন্য কোনো টেক্সট ছাড়া:\n"
-                        "[\n"
-                        "  {\n"
-                        '    "question": "প্রশ্ন এখানে?",\n'
-                        '    "options": ["অপশন ক", "অপশন খ", "অপশন গ", "অপশন ঘ"],\n'
-                        '    "correct_answer": "সঠিক অপশনটি",\n'
-                        '    "explanation": "সংক্ষিপ্ত ব্যাখ্যা"\n'
-                        "  }\n"
-                        "]"
+                        f"তুমি ভর্তি পরীক্ষার একজন এক্সপার্ট প্রশ্ন প্রণেতা। "
+                        f"নিচের কন্টেন্ট থেকে ঠিক {num_questions} টি উচ্চমানের MCQ তৈরি করো '{subject}' বিষয়ের জন্য। "
+                        "শুধুমাত্র একটি বিশুদ্ধ JSON Array আউটপুট দেবে:\n"
+                        "[\n  {\n    \"question\": \"প্রশ্ন?\",\n    \"options\": [\"অপশন ১\", \"অপশন ২\", \"অপশন ৩\", \"অপশন ৪\"],\n    \"correct_answer\": \"সঠিক উত্তর\",\n    \"explanation\": \"ব্যাখ্যা\"\n  }\n]"
                     )
-                    
                     contents = [prompt]
-                    if uploaded_images:
-                        contents.extend(uploaded_images)
-                    if extracted_content.strip():
-                        contents.append(f"\nকন্টেন্ট:\n{extracted_content[:40000]}")
+                    if uploaded_images: contents.extend(uploaded_images)
+                    if extracted_content.strip(): contents.append(f"\nকন্টেন্ট:\n{extracted_content[:40000]}")
                         
                     raw_response = generate_content_with_fallback(contents)
                     st.session_state.quiz_questions = safe_parse_json(raw_response)
@@ -261,7 +303,82 @@ with tab1:
                 except Exception as e:
                     st.error(f"{e}")
 
+# ----------------- TAB 2: PDF BOOK FLIPBOOK READER -----------------
 with tab2:
+    st.markdown('<div class="glass-card">', unsafe_allow_html=True)
+    st.subheader("📖 পিডিএফ বই রিডার (Interactive Page Flipbook)")
+    
+    reader_file = st.file_uploader("📚 পড়ার জন্য পিডিএফ বইটি আপলোড করুন:", type=["pdf"], key="book_reader_file")
+    
+    if reader_file:
+        file_bytes = reader_file.read()
+        st.session_state.reader_pages = extract_pdf_pages(file_bytes)
+        
+        if st.session_state.reader_pages:
+            total_p = len(st.session_state.reader_pages)
+            
+            # Control Bar & Theme Switcher
+            col_theme, col_slider = st.columns([1, 2])
+            with col_theme:
+                theme = st.selectbox("🎨 থিম নির্বাচন করুন:", ["📜 সেপিয়া (বইয়ের পাতা)", "🌙 ডার্ক মোড", "☀️ ক্লাসিক হোয়াইট"])
+            with col_slider:
+                st.session_state.current_page_idx = st.slider(
+                    "পৃষ্ঠা নির্বাচন করুন:", 
+                    min_value=1, 
+                    max_value=total_p, 
+                    value=st.session_state.current_page_idx + 1 if st.session_state.current_page_idx < total_p else 1
+                ) - 1
+
+            # Page Flip Buttons
+            col_prev, col_info, col_next = st.columns([1, 1, 1])
+            with col_prev:
+                if st.button("◀ পূর্ববর্তী পাতা", key="prev_p"):
+                    if st.session_state.current_page_idx > 0:
+                        st.session_state.current_page_idx -= 1
+                        st.rerun()
+            with col_info:
+                st.markdown(f"<h4 style='text-align:center; color:#38bdf8;'>পৃষ্ঠা {st.session_state.current_page_idx + 1} / {total_p}</h4>", unsafe_allow_html=True)
+            with col_next:
+                if st.button("পরবর্তী পাতা ▶", key="next_p"):
+                    if st.session_state.current_page_idx < total_p - 1:
+                        st.session_state.current_page_idx += 1
+                        st.rerun()
+
+            # Render Book Page with Selected Theme
+            page_content = st.session_state.reader_pages[st.session_state.current_page_idx]
+            
+            theme_class = "book-page-sepia"
+            if "ডার্ক" in theme:
+                theme_class = "book-page-dark"
+            elif "হোয়াইট" in theme:
+                theme_class = "book-page-white"
+
+            st.markdown(f"""
+                <div class="{theme_class}">
+                    <div style="text-align: right; font-size: 0.85rem; opacity: 0.6; margin-bottom: 10px;">Page {st.session_state.current_page_idx + 1}</div>
+                    <div>{page_content.replace('\n', '<br>')}</div>
+                </div>
+            """, unsafe_allow_html=True)
+
+            # AI Page Assistant
+            st.write("---")
+            if st.button("🤖 AI Assistant: এই পৃষ্ঠা সহজ ভাষায় বুঝিয়ে দাও"):
+                if api_key:
+                    with st.spinner("🧠 পৃষ্ঠা বিশ্লেষণ করে সহজ ব্যাখ্যা তৈরি হচ্ছে..."):
+                        try:
+                            explain_prompt = f"নিচের পৃষ্ঠা থেকে প্রধান পড়ার বিষয় ও সহজ ভাষায় মূলভাব সুন্দর করে বুঝিয়ে দাও:\n\n{page_content[:4000]}"
+                            ai_exp = generate_content_with_fallback([explain_prompt])
+                            st.info(f"💡 **এই পাতার সহজ কথা:**\n\n{ai_exp}")
+                        except Exception as e:
+                            st.error(f"ব্যাখ্যা প্রদান করা সম্ভব হয়নি: {e}")
+                else:
+                    st.warning("সাইডবারে API Key দিন।")
+    else:
+        st.info("👆 একটি পিডিএফ বই আপলোড করলেই তা সুন্দর ডিজিটাল বইয়ের মতো পড়া শুরু করতে পারবেন।")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# ----------------- TAB 3: LIVE INTERNET QUIZ -----------------
+with tab3:
     st.markdown('<div class="glass-card">', unsafe_allow_html=True)
     st.subheader("🌍 লাইভ ইন্টারনেট সাম্প্রতিক কুইজ")
     live_topic = st.text_input("🔍 টপিক লিখুন:", placeholder="যেমন: Bangladesh Affairs 2026 / World Sports")
@@ -275,18 +392,7 @@ with tab2:
         else:
             with st.spinner("🌐 সাম্প্রতিক তথ্য সংগ্রহ করা হচ্ছে..."):
                 try:
-                    web_prompt = (
-                        f"ইন্টারনেট থেকে সাম্প্রতিকতম তথ্য নিয়ে '{live_topic}' বিষয়ের ওপর ঠিক {live_num} টি MCQ তৈরি করো। "
-                        "শুধুমাত্র একটি নিখুঁত JSON Array আউটপুট দেবে:\n"
-                        "[\n"
-                        "  {\n"
-                        '    "question": "প্রশ্ন?",\n'
-                        '    "options": ["অপশন ১", "অপশন ২", "অপশন ৩", "অপশন ৪"],\n'
-                        '    "correct_answer": "সঠিক অপশনটি",\n'
-                        '    "explanation": "ব্যাখ্যা"\n'
-                        "  }\n"
-                        "]"
-                    )
+                    web_prompt = f"ইন্টারনেট থেকে তথ্য নিয়ে '{live_topic}' এর ওপর {live_num} টি MCQ তৈরি করো JSON Array আকারে।"
                     raw_response = generate_content_with_fallback([web_prompt])
                     st.session_state.quiz_questions = safe_parse_json(raw_response)
                     st.session_state.user_ans = {}
@@ -295,7 +401,8 @@ with tab2:
                 except Exception as e:
                     st.error(f"{e}")
 
-with tab3:
+# ----------------- TAB 4: MOCK TEST -----------------
+with tab4:
     st.markdown('<div class="glass-card">', unsafe_allow_html=True)
     st.subheader("✍️ লাইভ মক টেস্ট")
     
@@ -307,12 +414,7 @@ with tab3:
                 </div>
             """, unsafe_allow_html=True)
             
-            selected_option = st.radio(
-                f"অপশন বাছাই করুন #{i+1}", 
-                q['options'], 
-                key=f"q_radio_{i}", 
-                index=None
-            )
+            selected_option = st.radio(f"অপশন বাছাই করুন #{i+1}", q['options'], key=f"q_radio_{i}", index=None)
             
             if st.button(f"উত্তর যাচাই করো #{i+1}", key=f"check_btn_{i}"):
                 st.session_state.user_ans[i] = selected_option
@@ -323,11 +425,7 @@ with tab3:
                     st.session_state.stats["total_correct"] += 1
                 elif selected_option is not None:
                     st.session_state.stats["total_attempted"] += 1
-                    mistake_item = {
-                        "question": q['question'],
-                        "correct_answer": q['correct_answer'],
-                        "explanation": q['explanation']
-                    }
+                    mistake_item = {"question": q['question'], "correct_answer": q['correct_answer'], "explanation": q['explanation']}
                     if mistake_item not in st.session_state.mistakes:
                         st.session_state.mistakes.append(mistake_item)
 
@@ -339,12 +437,12 @@ with tab3:
                     st.success(f"✅ সঠিক উত্তর! 💡 ব্যাখ্যা: {q['explanation']}")
                 else:
                     st.error(f"❌ ভুল উত্তর! সঠিক উত্তর: {q['correct_answer']} | 💡 ব্যাখ্যা: {q['explanation']}")
-
     else:
-        st.info("প্রথমে প্রথম বা দ্বিতীয় ট্যাব থেকে কুইজ জেনারেট করে নিন।")
+        st.info("প্রথমে প্রথম বা তৃতীয় ট্যাব থেকে কুইজ জেনারেট করে নিন।")
     st.markdown('</div>', unsafe_allow_html=True)
 
-with tab4:
+# ----------------- TAB 5: MISTAKES NOTEBOOK -----------------
+with tab5:
     st.markdown('<div class="glass-card">', unsafe_allow_html=True)
     st.subheader("❌ ভুলের খাতা")
     if st.session_state.mistakes:
@@ -361,7 +459,8 @@ with tab4:
         st.success("এখনো কোনো ভুলের রেকর্ড নেই!")
     st.markdown('</div>', unsafe_allow_html=True)
 
-with tab5:
+# ----------------- TAB 6: ANALYTICS -----------------
+with tab6:
     st.markdown('<div class="glass-card">', unsafe_allow_html=True)
     st.subheader("📊 পারফরম্যান্স অ্যানালিটিক্স")
     stats = st.session_state.stats
@@ -370,11 +469,8 @@ with tab5:
     accuracy = (total_corr / total_att * 100) if total_att > 0 else 0
     
     col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("মোট এটেন্ড", total_att)
-    with col2:
-        st.metric("সঠিক উত্তর", total_corr)
-    with col3:
-        st.metric("একুরেসি", f"{accuracy:.1f}%")
+    with col1: st.metric("মোট এটেন্ড", total_att)
+    with col2: st.metric("সঠিক উত্তর", total_corr)
+    with col3: st.metric("একুরেসি", f"{accuracy:.1f}%")
     st.markdown('</div>', unsafe_allow_html=True)
-    
+            
