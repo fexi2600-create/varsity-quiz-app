@@ -166,6 +166,8 @@ if "cleaned_pages" not in st.session_state:
     st.session_state.cleaned_pages = {}
 if "current_page_idx" not in st.session_state:
     st.session_state.current_page_idx = 0
+if "uploaded_file_id" not in st.session_state:
+    st.session_state.uploaded_file_id = ""
 
 # Sidebar for Custom API Key Input
 with st.sidebar:
@@ -224,8 +226,12 @@ def extract_pdf_pages(file_bytes):
         pages.append(text if text.strip() else "[এই পৃষ্ঠায় কোনো পড়ার উপযোগী টেক্সট পাওয়া যায়নি]")
     return pages
 
-# Bijoy/ANSI Text Converter function using AI
-def fix_bijoy_bangla_text(raw_text):
+# Automatic Bijoy ANSI to Unicode Converter & English-to-Bangla Translator
+def fix_and_translate_text(raw_text):
+    if not raw_text.strip() or raw_text == "[এই পৃষ্ঠায় কোনো পড়ার উপযোগী টেক্সট পাওয়া যায়নি]":
+        return raw_text
+
+    # Detect Bijoy / Corrupted ANSI Text
     if re.search(r'[†‡‰ˆª¤«»ª]', raw_text) or "mvaviY" in raw_text or "nvBjvBUm" in raw_text:
         prompt = (
             "The following text is Bengali written in Bijoy/SutonnyMJ ANSI font, showing up as corrupted characters. "
@@ -236,6 +242,7 @@ def fix_bijoy_bangla_text(raw_text):
             return generate_content_with_fallback([prompt])
         except Exception:
             return raw_text
+            
     return raw_text
 
 # Header Component
@@ -311,17 +318,35 @@ with tab1:
                 except Exception as e:
                     st.error(f"{e}")
 
-# ----------------- TAB 2: PDF BOOK FLIPBOOK READER & TOPIC EXTRACTOR -----------------
+# ----------------- TAB 2: PDF BOOK FLIPBOOK READER & INSTANT TRANSLATOR -----------------
 with tab2:
     st.markdown('<div class="glass-card">', unsafe_allow_html=True)
-    st.subheader("📖 পিডিএফ বই রিডার ও ইম্পর্টেন্ট টপিক হাইলাইটার")
+    st.subheader("📖 পিডিএফ বই রিডার ও ইনস্ট্যান্ট অটো-অনুবাদক")
     
     reader_file = st.file_uploader("📚 পড়ার জন্য পিডিএফ বইটি আপলোড করুন:", type=["pdf"], key="book_reader_file")
     
     if reader_file:
         file_bytes = reader_file.read()
-        st.session_state.reader_pages = extract_pdf_pages(file_bytes)
-        
+        file_id = f"{reader_file.name}_{reader_file.size}"
+
+        # If a NEW PDF is uploaded -> Auto convert/translate ALL pages immediately at upload time
+        if st.session_state.uploaded_file_id != file_id:
+            st.session_state.uploaded_file_id = file_id
+            st.session_state.reader_pages = extract_pdf_pages(file_bytes)
+            st.session_state.cleaned_pages = {}
+            st.session_state.current_page_idx = 0
+
+            if st.session_state.reader_pages and api_key:
+                total_p = len(st.session_state.reader_pages)
+                progress_bar = st.progress(0, text="⚡ পিডিএফ আপলোড সম্পন্ন! বিজয় ফন্ট থেকে শুদ্ধ বাংলায় রূপান্তর করা হচ্ছে...")
+                
+                for i, page_txt in enumerate(st.session_state.reader_pages):
+                    st.session_state.cleaned_pages[i] = fix_and_translate_text(page_txt)
+                    progress_bar.progress((i + 1) / total_p, text=f"⏳ অনুবাদ ও ফন্ট রূপান্তর করা হচ্ছে: {i+1}/{total_p} নম্বর পাতা")
+                
+                progress_bar.empty()
+                st.success("🎉 পিডিএফ-এর সকল পৃষ্ঠা সফলভাবে একবারে অনুবাদ ও রূপান্তর করা হয়েছে!")
+
         if st.session_state.reader_pages:
             total_p = len(st.session_state.reader_pages)
             
@@ -339,16 +364,6 @@ with tab2:
 
             curr_idx = st.session_state.current_page_idx
             raw_page_content = st.session_state.reader_pages[curr_idx]
-
-            # Auto Clean Bijoy/ANSI Broken Text
-            if curr_idx not in st.session_state.cleaned_pages:
-                if re.search(r'[†‡‰ˆª¤«»ª]', raw_page_content) or "mvaviY" in raw_page_content:
-                    with st.spinner("✨ বিজয় ফন্টকে স্পষ্ট বাংলায় রূপান্তর করা হচ্ছে..."):
-                        clean_txt = fix_bijoy_bangla_text(raw_page_content)
-                        st.session_state.cleaned_pages[curr_idx] = clean_txt
-                else:
-                    st.session_state.cleaned_pages[curr_idx] = raw_page_content
-
             page_content = st.session_state.cleaned_pages.get(curr_idx, raw_page_content)
 
             # Theme Selection
@@ -422,7 +437,7 @@ with tab2:
                     else:
                         st.warning("সাইডবারে API Key দিন।")
     else:
-        st.info("👆 একটি পিডিএফ বই আপলোড করলেই তা সুন্দর ডিজিটাল বইয়ের মতো পড়া শুরু করতে পারবেন।")
+        st.info("👆 একটি পিডিএফ বই আপলোড করলেই তা অটো-কনভার্ট ও অনুবাদ হয়ে যাবে।")
     st.markdown('</div>', unsafe_allow_html=True)
 
 # ----------------- TAB 3: LIVE INTERNET QUIZ -----------------
@@ -457,18 +472,4 @@ with tab4:
     if st.session_state.quiz_questions:
         for i, q in enumerate(st.session_state.quiz_questions):
             st.markdown(f"""
-                <div style="background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 18px; padding: 20px; margin-bottom: 20px;">
-                    <h4 style="color: #38bdf8; margin-top:0;">প্রশ্ন {i+1}: {q['question']}</h4>
-                </div>
-            """, unsafe_allow_html=True)
-            
-            selected_option = st.radio(f"অপশন বাছাই করুন #{i+1}", q['options'], key=f"q_radio_{i}", index=None)
-            
-            if st.button(f"উত্তর যাচাই করো #{i+1}", key=f"check_btn_{i}"):
-                st.session_state.user_ans[i] = selected_option
-                st.session_state.checked_status[i] = True
-                
-                if selected_option == q['correct_answer']:
-                    st.session_state.stats["total_attempted"] += 1
-                    st.session_state.stats["total_correct"] += 1
-  
+                <div style="background: rgba(30, 41, 59, 0.4); bord
